@@ -586,14 +586,17 @@ As perguntas originais foram mantidas intactas. Algumas só puderam ser respondi
 - **Confusão temporal na análise:** a conversão vai de 4,8% (2008) a 52,1% (2010). Várias conclusões "óbvias" (melhor mês, lift de idosos) mudaram depois de controlar o período. Foi o aprendizado analítico mais importante do projeto.
 - **Limitações do Free Edition / serverless:** `input_file_name()` e cache de DataFrame não são suportados, o que levou ao uso da coluna `_metadata` e ao cálculo das checagens de qualidade numa única agregação.
 
-### Trabalhos futuros
+### Autoavaliação
 
-1. **Modelo preditivo** de propensão, sem `duration`, com validação temporal (treino em 2008-2009, teste em 2010) e calibração, para gerar uma lista de prioridade por cliente.
-2. **Lakeflow Declarative Pipelines (DLT)** com *expectations* nativas, no lugar do `DQReport` próprio.
-3. **Ingestão incremental** com Auto Loader, caso a fonte passe a receber novos arquivos.
-4. **Dashboard AI/BI** no Databricks sobre a camada gold, para acompanhamento pelo time de negócio.
-5. **Databricks Asset Bundles + CI/CD** (GitHub Actions) para versionar e implantar o Job e os notebooks.
-6. **Teste A/B** das recomendações (teto de 3 contatos, priorização por perfil) numa campanha real.
+**O objetivo central foi atingido em grande parte.** O projeto se propôs a identificar os fatores que mais influenciam a conversão, para otimizar a alocação do esforço de contato. Ao final, esses fatores estão identificados e ordenados por força e pela capacidade do banco de agir sobre eles. O mais forte é o histórico de relacionamento: ex-aderentes convertem 65,1%, contra 8,8% dos clientes novos. Em seguida vêm o canal, com o celular convertendo 2,8× mais que o fixo, e o esforço por cliente, já que 88% das adesões acontecem até o 3º contato. O perfil demográfico pesa menos. Cada fator virou uma recomendação operacional concreta.
+
+**Frente às decisões de negócio planejadas no início** (tabela de [planejamento](#planejamento-como-cada-pergunta-será-respondida)):
+- **Atingidas (5):** canal padrão (P1), segmentos a priorizar (P2), teto de tentativas (P3), lista quente (P4) e ranking de priorização (P7). Para essas decisões, os dados deram uma resposta clara, que se manteve depois de controlar o efeito do período.
+- **Atingidas em parte (2):** o calendário de contatos (P5) ficou limitado a recomendações fracas (evitar a segunda-feira e ondas massivas), porque não foi possível separar o efeito do mês do efeito do período. A calibração do volume pelo ciclo econômico (P6) é viável como uso de uma associação, mas não consegui afirmar que os indicadores *influenciam* a decisão do cliente, como a pergunta pedia.
+
+**O que não foi possível entregar, e por quê:** uma estimativa de quanto a conversão subiria com as recomendações aplicadas. Isso exigiria um experimento controlado ou dados de campanhas posteriores, que o dataset não tem. As recomendações estão bem fundamentadas nos dados históricos, mas o ganho esperado não está quantificado.
+
+**Sobre o processo:** as perguntas definidas no início orientaram as decisões de engenharia, e isso mudou o resultado. Preservar a ordem das linhas desde o bronze permitiu reconstruir o ano; sem ele, as conclusões de P2 e P5 estariam erradas. Investigar o `pdays` antes de criar a flag de contato prévio evitou uma resposta incorreta na P4. Considero que o MVP cumpriu o seu papel: é um pipeline funcional, de ponta a ponta, que responde de forma confiável à maioria das perguntas e deixa claro onde os dados não permitem ir além.
 
 ---
 
