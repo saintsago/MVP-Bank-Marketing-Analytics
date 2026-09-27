@@ -1,0 +1,36 @@
+{
+  "name": "mvp_bank_marketing_pipeline",
+  "description": "Pipeline medalhão do MVP PUC-Rio (UCI Bank Marketing): ingestão bronze -> transformação silver -> modelagem gold (star schema) -> análise. Compute serverless.",
+  "tags": { "projeto": "mvp-puc-rio", "dataset": "uci-bank-marketing" },
+  "max_concurrent_runs": 1,
+  "queue": { "enabled": true },
+  "tasks": [
+    {
+      "task_key": "01_ingestao_bronze",
+      "description": "CSV do volume landing -> bronze.raw_bank_marketing",
+      "notebook_task": { "notebook_path": "{{NOTEBOOKS_DIR}}/01_ingestao_bronze", "source": "WORKSPACE" },
+      "timeout_seconds": 1800
+    },
+    {
+      "task_key": "02_transformacao_silver",
+      "description": "Limpeza, tipagem, deduplicação, derivadas e qualidade -> silver.slv_bank_marketing",
+      "depends_on": [{ "task_key": "01_ingestao_bronze" }],
+      "notebook_task": { "notebook_path": "{{NOTEBOOKS_DIR}}/02_transformacao_silver", "source": "WORKSPACE" },
+      "timeout_seconds": 1800
+    },
+    {
+      "task_key": "03_modelagem_gold",
+      "description": "Star schema: dim_cliente, dim_campanha, dim_contexto_economico, fato_contato",
+      "depends_on": [{ "task_key": "02_transformacao_silver" }],
+      "notebook_task": { "notebook_path": "{{NOTEBOOKS_DIR}}/03_modelagem_gold", "source": "WORKSPACE" },
+      "timeout_seconds": 1800
+    },
+    {
+      "task_key": "04_analise",
+      "description": "Respostas às 7 perguntas de negócio (consultas + gráficos)",
+      "depends_on": [{ "task_key": "03_modelagem_gold" }],
+      "notebook_task": { "notebook_path": "{{NOTEBOOKS_DIR}}/04_analise", "source": "WORKSPACE" },
+      "timeout_seconds": 1800
+    }
+  ]
+}
