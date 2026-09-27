@@ -118,6 +118,84 @@ print("Falhas de conversão por coluna:", cast_failures)
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ### 2.1 Perfil de qualidade por atributo
+# MAGIC
+# MAGIC Cada um dos 21 atributos é avaliado **no dado capturado** (já tipado, antes de qualquer tratamento), nas cinco dimensões de qualidade:
+# MAGIC
+# MAGIC | Dimensão | Como é medida |
+# MAGIC |---|---|
+# MAGIC | Completude | nulos/vazios e % de `unknown` (ausência de informação codificada como categoria) |
+# MAGIC | Consistência | valores fora do domínio documentado (categóricos) ou que falharam na conversão numérica |
+# MAGIC | Unicidade | nº de valores distintos (a unicidade de linha, ou seja, as duplicatas, é tratada na seção 3) |
+# MAGIC | Acurácia | valores fora de uma faixa plausível para o contexto (ex.: idade entre 17 e 100) |
+# MAGIC | Outliers | numéricos: regra do IQR, valores fora de [Q1 − 1,5·IQR, Q3 + 1,5·IQR]; categóricos: categorias raras (< 0,5% das linhas) |
+# MAGIC
+# MAGIC Em `pdays`, o valor 999 é um código sentinela ("sem registro"), não uma medida, e fica fora das estatísticas numéricas.
+
+# COMMAND ----------
+
+PLAUSIBLE_RANGES = {  # acurácia: faixa plausível no contexto do negócio
+    "age": (17, 100), "duration": (0, 7200), "campaign": (1, 100), "pdays": (0, 999), "previous": (0, 50),
+    "emp_var_rate": (-10, 10), "cons_price_idx": (80, 110), "cons_conf_idx": (-100, 0), "euribor3m": (0, 10), "nr_employed": (4000, 6000),
+}
+RARE_SHARE = 0.005
+
+numeric_cols = INT_COLUMNS + list(DOUBLE_COLUMNS.values())
+source_name = {**{c: c for c in INT_COLUMNS + CATEGORICAL_COLUMNS}, **{dst: src for src, dst in DOUBLE_COLUMNS.items()}}
+raw_domains = {("default" if c == "credit_default" else c): dom for c, dom in DOMAINS.items()} | {"y": ["yes", "no"]}
+measure = {c: F.when(F.col(c) != 999, F.col(c)) if c == "pdays" else F.col(c) for c in numeric_cols}
+
+# 1ª passada: mínimos, máximos e quartis dos numéricos
+qp_stats = df_typed.select(
+    *[F.min(e).alias(f"{c}__min") for c, e in measure.items()],
+    *[F.max(e).alias(f"{c}__max") for c, e in measure.items()],
+    *[F.percentile_approx(e, [0.25, 0.75], 10000).alias(f"{c}__q") for c, e in measure.items()],
+).first().asDict()
+bounds = {}
+for c in numeric_cols:
+    q1, q3 = qp_stats[f"{c}__q"]
+    bounds[c] = (q1 - 1.5 * (q3 - q1), q3 + 1.5 * (q3 - q1))
+
+# 2ª passada: contagens de outliers, acurácia, distintos, unknown e domínio
+qp_counts = df_typed.select(
+    *[F.sum(F.when((e < bounds[c][0]) | (e > bounds[c][1]), 1).otherwise(0)).alias(f"{c}__out") for c, e in measure.items()],
+    *[F.sum(F.when(~F.col(c).between(lo, hi), 1).otherwise(0)).alias(f"{c}__acc") for c, (lo, hi) in PLAUSIBLE_RANGES.items()],
+    *[F.countDistinct(c).alias(f"{c}__dist") for c in numeric_cols + CATEGORICAL_COLUMNS],
+    *[F.sum(F.when(F.col(c) == "unknown", 1).otherwise(0)).alias(f"{c}__unk") for c in CATEGORICAL_COLUMNS],
+    *[F.sum(F.when(~F.col(c).isin(dom), 1).otherwise(0)).alias(f"{c}__dom") for c, dom in raw_domains.items()],
+).first().asDict()
+
+
+def fmt_num(x) -> str:
+    return f"{x:g}" if x is not None else None
+
+
+rows = []
+for c in numeric_cols:
+    lo, hi = bounds[c]
+    rows.append((
+        source_name[c], "numérico", profile[f"{source_name[c]}__nulos"], 0.0, cast_failures[c], qp_counts[f"{c}__dist"], qp_counts[f"{c}__acc"],
+        f"{fmt_num(qp_stats[f'{c}__min'])} a {fmt_num(qp_stats[f'{c}__max'])}", f"[{lo:.4g} ; {hi:.4g}]",
+        qp_counts[f"{c}__out"], round(100 * qp_counts[f"{c}__out"] / bronze_rows, 2), None,
+    ))
+for c in CATEGORICAL_COLUMNS:
+    counts = {r[0]: r[1] for r in df_typed.groupBy(c).count().collect()}
+    rare = {k: n for k, n in counts.items() if n < RARE_SHARE * bronze_rows}
+    rows.append((
+        source_name[c], "categórico", profile[f"{c}__nulos"], round(100 * qp_counts[f"{c}__unk"] / bronze_rows, 2), qp_counts[f"{c}__dom"], qp_counts[f"{c}__dist"], 0,
+        None, None, sum(rare.values()), round(100 * sum(rare.values()) / bronze_rows, 2),
+        ", ".join(f"{k} ({n})" for k, n in sorted(rare.items(), key=lambda kv: kv[1])) or None,
+    ))
+
+quality_profile = spark.createDataFrame(rows, """
+    atributo string, tipo string, nulos long, unknown_pct double, fora_dominio_ou_conversao long, distintos long,
+    fora_faixa_plausivel long, min_max string, limites_iqr string, outliers long, outliers_pct double, categorias_raras string
+""")
+display(quality_profile)
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## 3. Enriquecimento temporal e remoção de duplicatas
 # MAGIC
 # MAGIC **`contact_year` (inferido).** O dataset não traz o ano, mas a UCI informa que as linhas estão **ordenadas por data, de maio/2008 a novembro/2010**.

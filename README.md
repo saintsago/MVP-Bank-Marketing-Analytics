@@ -2,6 +2,8 @@
 
 **MVP de Engenharia de Dados — Pós-graduação em Ciência de Dados e Analytics (PUC-Rio)**
 
+**Autor:** Raphael Santiago · [GitHub](https://github.com/saintsago)
+
 Pipeline de dados em nuvem, de ponta a ponta, construído no **Databricks (Free Edition)** com **arquitetura medalhão** (Bronze → Silver → Gold), **Delta Lake**, **Unity Catalog** e modelagem dimensional em **esquema estrela**. O pipeline responde a perguntas de negócio sobre campanhas de telemarketing de um banco português.
 
 ![Databricks](https://img.shields.io/badge/Databricks-Free%20Edition-FF3621?logo=databricks&logoColor=white)
@@ -14,12 +16,12 @@ Pipeline de dados em nuvem, de ponta a ponta, construído no **Databricks (Free 
 ## Sumário
 
 1. [Visão geral da solução](#visão-geral-da-solução)
-2. [Contexto de Negócios e Perguntas](#1-contexto-de-negócios-e-perguntas)
-3. [Carga dos Dados](#2-carga-dos-dados)
-4. [Modelagem e Catálogo de Dados](#3-modelagem-e-catálogo-de-dados)
-5. [Pipeline de Dados](#4-pipeline-de-dados)
-6. [Qualidade de Dados](#5-qualidade-de-dados)
-7. [Análise de Dados](#6-análise-de-dados)
+2. [Contexto de Negócios e Perguntas (Etapa 2 e 4.1)](#1-contexto-de-negócios-e-perguntas-etapa-2-e-41)
+3. [Carga dos Dados (Etapa 4.2)](#2-carga-dos-dados-etapa-42)
+4. [Modelagem e Catálogo de Dados (Etapa 4.3)](#3-modelagem-e-catálogo-de-dados-etapa-43)
+5. [Pipeline de Dados (Etapa 4.4)](#4-pipeline-de-dados-etapa-44)
+6. [Qualidade de Dados (Etapa 4.5)](#5-qualidade-de-dados-etapa-45)
+7. [Análise de Dados (Etapa 4.5)](#6-análise-de-dados-etapa-45)
 8. [Autoavaliação](#7-autoavaliação)
 9. [Como reproduzir](#como-reproduzir)
 10. [Referências](#referências)
@@ -51,7 +53,7 @@ flowchart LR
 
 ---
 
-## 1. Contexto de Negócios e Perguntas
+## 1. Contexto de Negócios e Perguntas (Etapa 2 e 4.1)
 
 ### Problema
 
@@ -70,6 +72,25 @@ Campanhas de telemarketing são caras: cada ligação consome tempo de operador,
 | P5 | Qual é o melhor mês e dia da semana para realizar contatos? |
 | P6 | Os indicadores econômicos (emprego, confiança, Euribor) influenciam a decisão do cliente? |
 | P7 | Qual combinação de características forma o melhor "perfil ideal" de cliente para priorizar nos próximos contatos? |
+
+### Planejamento: como cada pergunta será respondida
+
+| # | Dados necessários | Métrica / método | Decisão de negócio que apoia |
+|---|---|---|---|
+| P1 | `y`, `contact` (+ ano do contato) | Taxa de conversão geral e por canal, com controle por ano | Canal padrão das campanhas |
+| P2 | `age`, `job`, `education`, `marital` | Taxa e *lift* por categoria (mínimo de 100 contatos), com controle por ano | Segmentos a priorizar ou despriorizar |
+| P3 | `campaign` | Taxa por faixa de nº de contatos e adesões a cada 100 ligações | Teto de tentativas por cliente |
+| P4 | `previous`, `poutcome`, `pdays` | Taxa de novos × já contatados × resultado anterior | Ordem de prioridade da base (lista quente) |
+| P5 | `month`, `day_of_week` (+ ano do contato) | Taxa e volume por mês e dia; mapa ano × mês | Calendário de contatos |
+| P6 | Os 5 indicadores econômicos | Taxa por faixa, correlação e série temporal | Calibrar volume e meta ao ciclo econômico |
+| P7 | Perfil + canal + histórico (**sem `duration`**) | Ranking de segmentos (suporte ≥ 200) e árvore de decisão | Ranking de priorização de clientes |
+
+**Requisitos derivados para a engenharia de dados:**
+- o grão analítico é o **contato** (1 linha por cliente contatado);
+- é preciso **preservar a ordem do arquivo** para reconstruir o ano, que não existe na fonte e é necessário para separar efeitos de período (P1, P2, P5, P6);
+- o `pdays` precisa de tratamento cuidadoso, porque define quem é "cliente novo" (P4);
+- `duration` precisa ser marcada como *data leakage* no catálogo, para não ser usada em P7;
+- como a fonte é estática, basta uma **carga batch full e idempotente**, sem necessidade de atualização em tempo real.
 
 ### Os dados brutos
 
@@ -105,7 +126,7 @@ Os dados **não** estão versionados neste repositório (ver `.gitignore`). O no
 
 ---
 
-## 2. Carga dos Dados
+## 2. Carga dos Dados (Etapa 4.2)
 
 **Script:** [`notebooks/01_ingestao_bronze.py`](notebooks/01_ingestao_bronze.py)
 
@@ -136,7 +157,7 @@ Resultado: tabela Delta **`bronze.raw_bank_marketing`** com 41.188 linhas e 24 c
 
 ---
 
-## 3. Modelagem e Catálogo de Dados
+## 3. Modelagem e Catálogo de Dados (Etapa 4.3)
 
 ### Modelo em camadas (medalhão)
 
@@ -219,7 +240,15 @@ A documentação abaixo também está **gravada no Unity Catalog**: cada tabela 
 
 ![Catalog Explorer com os schemas e tabelas](docs/images/screenshots/01_catalog_explorer.png)
 
+**Linhagem.** Além da coluna "Linhagem" nas tabelas abaixo, o Unity Catalog registra a linhagem **automaticamente** a cada execução do pipeline:
+volume `landing` → `bronze.raw_bank_marketing` → `silver.slv_bank_marketing` → tabelas `gold`, incluindo qual notebook gerou cada tabela.
+
+![Grafo de linhagem no Unity Catalog](docs/images/screenshots/11_lineage_graph.png)
+
 #### `silver.slv_bank_marketing`
+
+**Descrição:** contatos de telemarketing do banco (2008-2010) limpos, tipados, deduplicados e enriquecidos. Relação 1:1 com o bronze, menos as 12 duplicatas:
+41.176 linhas × 28 colunas. Grão: 1 cliente contatado na campanha. A categoria `unknown` é mantida como válida.
 
 | Campo | Tipo | Descrição | Domínio / faixa observada | Linhagem (bronze → silver) |
 |---|---|---|---|---|
@@ -254,6 +283,13 @@ A documentação abaixo também está **gravada no Unity Catalog**: cada tabela 
 
 #### Gold
 
+| Tabela | Descrição |
+|---|---|
+| `fato_contato` | Fato de contatos: 1 linha por cliente contatado na campanha (41.176). Guarda as chaves das 3 dimensões, as métricas de esforço (`campaign`, `duration`), o histórico (`pdays`, `previous`) e o resultado (`is_subscribed`) |
+| `dim_cliente` | Perfil demográfico e de crédito do cliente (13.006 perfis distintos). Como a fonte não tem ID de cliente, clientes com os mesmos atributos compartilham a linha |
+| `dim_campanha` | Características do contato: ano (inferido), mês, dia da semana, canal e resultado da campanha anterior (561 combinações) |
+| `dim_contexto_economico` | Cenário macroeconômico de Portugal no momento do contato: emprego, preços, confiança do consumidor e Euribor (375 cenários) |
+
 | Tabela | Campo | Tipo | Descrição | Linhagem (silver → gold) |
 |---|---|---|---|---|
 | `fato_contato` | `contact_id` | int (PK) | Identificador do contato | `contact_id` |
@@ -272,13 +308,13 @@ A documentação abaixo também está **gravada no Unity Catalog**: cada tabela 
 
 #### `bronze.raw_bank_marketing`
 
-As 21 colunas de origem ficam **com os nomes originais e tipo `string`** (ex.: `emp.var.rate`), acrescidas de `_source_row_number` (int), `_ingestion_timestamp` (timestamp) e `_source_file` (string). O significado de cada coluna é o mesmo da silver, e os domínios oficiais estão no dicionário da UCI (`bank-additional-names.txt`).
+**Descrição:** cópia fiel do arquivo `bank-additional-full.csv`, sem nenhum tratamento de conteúdo (41.188 linhas). As 21 colunas de origem ficam **com os nomes originais e tipo `string`** (ex.: `emp.var.rate`), acrescidas de `_source_row_number` (int), `_ingestion_timestamp` (timestamp) e `_source_file` (string). O significado de cada coluna é o mesmo da silver, e os domínios oficiais estão no dicionário da UCI (`bank-additional-names.txt`).
 
 ![Colunas documentadas da silver no Unity Catalog](docs/images/screenshots/04_silver_tabela.png)
 
 ---
 
-## 4. Pipeline de Dados
+## 4. Pipeline de Dados (Etapa 4.4)
 
 ### Organização dos notebooks
 
@@ -288,9 +324,26 @@ O pipeline é **linear e modular**: um notebook por camada, mais um notebook de 
 |---|---|---|---|---|
 | — | [`00_utils.py`](notebooks/00_utils.py) | — | — | Configuração (nomes de catálogo/tabelas), gravação de comentários no Unity Catalog, framework de qualidade `DQReport`. Carregado via `%run` |
 | 1 | [`01_ingestao_bronze.py`](notebooks/01_ingestao_bronze.py) | CSV no volume `landing` | `bronze.raw_bank_marketing` | Coleta (com download de fallback), leitura bruta, metadados, validação de entrada |
-| 2 | [`02_transformacao_silver.py`](notebooks/02_transformacao_silver.py) | bronze | `silver.slv_bank_marketing` | Diagnóstico, tipagem, inferência do ano, deduplicação, derivadas, 37 checagens de qualidade, constraints `CHECK` |
+| 2 | [`02_transformacao_silver.py`](notebooks/02_transformacao_silver.py) | bronze | `silver.slv_bank_marketing` | Diagnóstico, perfil de qualidade por atributo, tipagem, inferência do ano, deduplicação, derivadas, 37 checagens de qualidade, constraints `CHECK` |
 | 3 | [`03_modelagem_gold.py`](notebooks/03_modelagem_gold.py) | silver | `gold.dim_*`, `gold.fato_contato` | Dimensões com surrogate keys, fato via lookup, checagens de integridade, PK/FK |
 | 4 | [`04_analise.py`](notebooks/04_analise.py) | gold (star schema) | gráficos em `gold.relatorios` | Consultas das 7 perguntas, gráficos e discussão |
+
+### Transformações: o que, por que e impacto nos dados
+
+| Etapa | Transformação | Por quê | Impacto nos dados |
+|---|---|---|---|
+| Bronze | Leitura do CSV com todas as colunas como texto + 3 colunas de metadados | Preservar o dado original e garantir rastreabilidade | 41.188 linhas × 24 colunas |
+| Silver | Tipagem de 10 colunas numéricas (`try_cast`) | Permitir cálculos e validações de faixa | 0 falhas de conversão |
+| Silver | `contact_year` inferido pela ordem do arquivo | A fonte não tem ano, e o período afeta muito a conversão | Nova coluna: 2008 = 27.682 · 2009 = 11.436 · 2010 = 2.058 linhas |
+| Silver | Remoção de duplicatas exatas (mantida a 1ª ocorrência) | 12 linhas idênticas em todas as colunas | 41.188 → 41.176 linhas |
+| Silver | snake_case (`emp.var.rate` → `emp_var_rate` …) e `default` → `credit_default` | Pontos exigem crases no SQL; `DEFAULT` é palavra reservada | 5 colunas renomeadas |
+| Silver | `pdays = 999` → `NULL` | 999 é código sentinela e distorceria médias e correlações | 39.661 valores → NULL |
+| Silver | `is_previously_contacted = previous > 0` | `pdays` é inconsistente para 4.110 clientes (ver Qualidade) | 5.625 `true` / 35.551 `false` |
+| Silver | `age_group`, `month_num`, `day_of_week_num`, `duration_minutes` | Análise por faixas, ordenação cronológica e leitura em minutos | 4 colunas novas |
+| Silver | `y` → `is_subscribed` (boolean) | Alvo como booleano facilita taxas (`AVG`) | 4.639 `true` / 36.537 `false`; `y` removida |
+| Silver | Remoção de `_ingestion_timestamp` e `_source_file`; `_source_row_number` → `contact_id` | Metadados não são atributos de negócio; o número da linha vira identificador com linhagem até a fonte | 28 colunas finais |
+| Gold | Dimensões = combinações distintas + surrogate key | Separar descrições (dimensões) de eventos (fato) | 13.006 / 561 / 375 linhas |
+| Gold | Fato = silver + *lookup* (join) das 3 surrogate keys pela chave natural | Ligar cada contato às suas dimensões | 41.176 linhas, 0 chaves órfãs |
 
 ### Orquestração
 
@@ -298,10 +351,10 @@ O Job `mvp_bank_marketing_pipeline` ([`jobs/pipeline_job.json`](jobs/pipeline_jo
 
 | Task | Duração (última execução completa) |
 |---|---:|
-| 01_ingestao_bronze | 35 s |
-| 02_transformacao_silver | 26 s |
-| 03_modelagem_gold | 60 s |
-| 04_analise | 98 s |
+| 01_ingestao_bronze | 43 s |
+| 02_transformacao_silver | 40 s |
+| 03_modelagem_gold | 72 s |
+| 04_analise | 112 s |
 
 ![DAG do Job no Databricks](docs/images/screenshots/08_job_dag.png)
 ![Execução do Job com as 4 tasks concluídas](docs/images/screenshots/09_job_run.png)
@@ -321,7 +374,46 @@ O Job `mvp_bank_marketing_pipeline` ([`jobs/pipeline_job.json`](jobs/pipeline_jo
 
 ---
 
-## 5. Qualidade de Dados
+## 5. Qualidade de Dados (Etapa 4.5)
+
+### Verificação por atributo
+
+Cada um dos 21 atributos foi avaliado **no dado capturado** (antes dos tratamentos) nas cinco dimensões pedidas: completude, consistência, unicidade, acurácia e outliers.
+O cálculo está no notebook [`02_transformacao_silver.py`](notebooks/02_transformacao_silver.py), seção 2.1.
+
+- **Completude:** nulos/vazios e `unknown` (ausência de informação codificada como categoria).
+- **Consistência:** valores fora do domínio documentado pela UCI (categóricos) ou que falharam na conversão para número.
+- **Unicidade:** nº de valores distintos. Não há chave natural na fonte; a unicidade de linha (duplicatas) está no problema nº 1 abaixo.
+- **Acurácia:** valores fora de uma faixa plausível (ex.: idade entre 17 e 100; Euribor entre 0% e 10%).
+- **Outliers:** numéricos pela regra do IQR, fora de [Q1 − 1,5·IQR ; Q3 + 1,5·IQR]; categóricos como categorias raras (< 0,5% das linhas).
+
+| Atributo | Completude | Consistência | Distintos | Acurácia | Outliers | Decisão |
+|---|---|---|---:|---|---|---|
+| `age` | 0 nulos | 0 falhas | 78 | 17–98, ok | 469 (1,1%) acima de 69,5 anos | Mantidos: clientes idosos reais, segmento relevante (65+) |
+| `job` | 0 nulos · 0,8% `unknown` | 0 fora do domínio | 12 | ok | — | `unknown` mantido |
+| `marital` | 0 nulos · 0,2% `unknown` | 0 | 4 | ok | rara: `unknown` (80) | Mantido |
+| `education` | 0 nulos · 4,2% `unknown` | 0 | 8 | ok | rara: `illiterate` (18) | Mantida; omitida nas taxas da P2 por n < 100 |
+| `default` | 0 nulos · **20,9% `unknown`** | 0 | 3 | ok | rara: `yes` (3) | Renomeada `credit_default`; `unknown` informativo |
+| `housing` | 0 nulos · 2,4% `unknown` | 0 | 3 | ok | — | Mantido |
+| `loan` | 0 nulos · 2,4% `unknown` | 0 | 3 | ok | — | Mantido |
+| `contact` | 0 nulos | 0 | 2 | ok | — | — |
+| `month` | 0 nulos | 0 | 10 | ok (não há jan/fev) | rara: `dec` (182) | Mantido; `month_num` criado |
+| `day_of_week` | 0 nulos | 0 | 5 | ok (só dias úteis) | — | `day_of_week_num` criado |
+| `duration` | 0 nulos | 0 falhas | 1.544 | 0–4.918 s, ok | 2.963 (7,2%) acima de 644 s | Mantidos; variável com *leakage*, só descritiva |
+| `campaign` | 0 nulos | 0 falhas | 42 | 1–56, ok | 2.406 (5,8%) acima de 6 contatos | Mantidos; análise por faixas (6-10, 11+) |
+| `pdays` | 0 nulos · **96,3% = 999** (sentinela) | **4.110 conflitos com `previous`** | 27 | 0–27 (+ 999), ok | 82 acima de 13 dias (entre os 1.515 com registro) | 999 → NULL; flag de contato prévio via `previous` |
+| `previous` | 0 nulos | 0 falhas | 8 | 0–7, ok | IQR degenerado (Q1 = Q3 = 0): os 5.625 valores > 0 | Não são outliers: são o grupo "já contatado" |
+| `poutcome` | 0 nulos | 0; 100% coerente com `previous` | 3 | ok | — | — |
+| `emp.var.rate` | 0 nulos | 0 falhas | 10 | −3,4 a 1,4, ok | 0 | — |
+| `cons.price.idx` | 0 nulos | 0 falhas | 26 | 92,2 a 94,8, ok | 0 | — |
+| `cons.conf.idx` | 0 nulos | 0 falhas | 26 | −50,8 a −26,9, ok | 447 (1,1%) com −26,9 | Mantidos: valor real do índice num período específico |
+| `euribor3m` | 0 nulos | 0 falhas | 316 | 0,63% a 5,05%, ok | 0 (distribuição bimodal: ~1% e ~4,9%) | — |
+| `nr.employed` | 0 nulos | 0 falhas | 11 | 4.963,6 a 5.228,1, ok | 0 | — |
+| `y` | 0 nulos | 0 | 2 | ok | — | Classe desbalanceada (11,3% `yes`); vira `is_subscribed` |
+
+**Leitura:** a base não tem nulos explícitos nem valores fora do domínio. Os problemas reais são **semânticos**: a ausência de informação codificada como `unknown` ou `999`, a inconsistência entre `pdays` e `previous`, as duplicatas e a falta de ano. Os outliers encontrados são valores legítimos do negócio, por isso nenhum foi removido; as análises usam faixas para que eles não distorçam os resultados.
+
+![Perfil de qualidade por atributo no Databricks](docs/images/screenshots/12_perfil_qualidade.png)
 
 ### Problemas detectados e tratamentos
 
@@ -358,9 +450,11 @@ Além das checagens, a silver tem **7 constraints `CHECK` do Delta Lake** (ex.: 
 
 ---
 
-## 6. Análise de Dados
+## 6. Análise de Dados (Etapa 4.5)
 
 **Script:** [`notebooks/04_analise.py`](notebooks/04_analise.py). Todas as consultas partem do **esquema estrela** (fato + 3 dimensões). **Taxa geral de conversão: 11,27%** (4.639 adesões em 41.176 contatos).
+
+Cada pergunta traz o gráfico gerado pelo pipeline e o **print da consulta executada no Databricks**, como evidência do resultado.
 
 ### P1 — Taxa geral e canal de contato
 
@@ -369,6 +463,10 @@ Além das checagens, a silver tem **7 constraints `CHECK` do Delta Lake** (ex.: 
 - O **celular converte 2,8× mais** que o telefone fixo: **14,7% × 5,2%**.
 - A vantagem se mantém **dentro de cada ano** (2008: 5,7% × 3,9%; 2009: 19,9% × 14,7%; 2010: 57,7% × 28,4%), então não é efeito do período.
 - **Ação:** celular como canal padrão; fixo só como alternativa.
+
+**Evidência no Databricks (P1):**
+
+![Consulta da P1 executada no Databricks](docs/images/screenshots/analise_p1.png)
 
 ### P2 — Perfil demográfico
 
@@ -379,6 +477,10 @@ Além das checagens, a silver tem **7 constraints `CHECK` do Delta Lake** (ex.: 
 - **Escolaridade e estado civil:** efeito moderado (curso superior 13,7%; solteiros 14,0%).
 - ⚠️ **Controle por período:** nenhum cliente 65+ foi contatado em 2008, o pior ano. Dentro de cada ano a vantagem persiste (em 2009: 65+ 40,7%, aposentados 36,5% e estudantes 32,1%, contra média de 19,5%), mas o *lift* real fica em ~1,5–2×, não os 3–4× da visão bruta.
 
+**Evidência no Databricks (P2):**
+
+![Consulta da P2 executada no Databricks](docs/images/screenshots/analise_p2.png)
+
 ### P3 — Número de contatos na campanha
 
 ![P3](docs/images/graficos/p3_numero_contatos.png)
@@ -387,12 +489,20 @@ Além das checagens, a silver tem **7 constraints `CHECK` do Delta Lake** (ex.: 
 - **88% das adesões ocorrem até o 3º contato.** Clientes com 6+ contatos consumiram **30,6% das ligações** para gerar só **4,0% das adesões**.
 - **Ação:** teto de **3 tentativas** por cliente. Isso libera ~26% das ligações, abrindo mão de no máximo 12% das adesões, e as ligações liberadas podem ir para clientes novos de perfil prioritário.
 
+**Evidência no Databricks (P3):**
+
+![Consulta da P3 executada no Databricks](docs/images/screenshots/analise_p3.png)
+
 ### P4 — Contato em campanhas anteriores
 
 ![P4](docs/images/graficos/p4_historico_contato.png)
 
 - Já contatados convertem **26,7%**, contra **8,8%** dos novos (3×). Ex-aderentes convertem **65,1%** (*lift* 5,8).
 - O tratamento correto de `pdays` (problema de qualidade nº 2) foi decisivo aqui: com a flag baseada em `pdays`, 4.110 clientes já contatados seriam contados como "novos".
+
+**Evidência no Databricks (P4):**
+
+![Consulta da P4 executada no Databricks](docs/images/screenshots/analise_p4.png)
 
 ### P5 — Mês e dia da semana
 
@@ -403,6 +513,10 @@ Além das checagens, a silver tem **7 constraints `CHECK` do Delta Lake** (ex.: 
 - O mapa ano × mês mostra que o **"efeito mês" é efeito de período**: 2008 ficou em 3–6% em quase todos os meses; de meados de 2009 em diante, acima de 30%. O padrão consistente é que **ondas massivas convertem pior**.
 - **Dia da semana:** ter–qui (11,7–12,1%) ligeiramente acima; segunda é o pior dia (9,9%).
 
+**Evidência no Databricks (P5):**
+
+![Consulta da P5 executada no Databricks](docs/images/screenshots/analise_p5.png)
+
 ### P6 — Indicadores econômicos
 
 ![P6 série](docs/images/graficos/p6_serie_temporal.png)
@@ -411,6 +525,10 @@ Além das checagens, a silver tem **7 constraints `CHECK` do Delta Lake** (ex.: 
 - **Associação forte:** Euribor < 1% → 45,7% de conversão; ≥ 4% → 4,8%. Correlação com a adesão: `nr_employed` −0,35, `euribor3m` −0,31, `emp_var_rate` −0,30; `cons_conf_idx` ≈ 0.
 - Os indicadores são **altamente colineares** (Euribor × nr_employed = 0,95) e medem o mesmo ciclo: a crise de 2008 e a queda dos juros.
 - **Cautela causal:** no mesmo período o banco mudou a operação (volume de 27,7 mil → 2,1 mil contatos/ano, mais celular, mais recontato). O resultado é **associação, não causalidade**. Uso prático: **calibrar volume e metas** conforme o ciclo de juros.
+
+**Evidência no Databricks (P6):**
+
+![Consulta da P6 executada no Databricks](docs/images/screenshots/analise_p6.png)
 
 ### P7 — Perfil ideal
 
@@ -427,6 +545,10 @@ Além das checagens, a silver tem **7 constraints `CHECK` do Delta Lake** (ex.: 
 
 **Regras operacionais:** celular, até 3 tentativas, terça a quinta, sem ondas massivas. Antes de escalar, validar com **teste A/B**.
 
+**Evidência no Databricks (P7):**
+
+![Consulta da P7 executada no Databricks](docs/images/screenshots/analise_p7.png)
+
 ### Conclusão
 
 Os fatores **controláveis** que mais influenciam a conversão são o **histórico de relacionamento**, o **canal** e o **esforço por cliente**. O **perfil demográfico** ajuda a priorizar os clientes novos. O **contexto macroeconômico** muda o patamar da conversão e serve para calibrar metas, não como alavanca.
@@ -442,8 +564,22 @@ Os fatores **controláveis** que mais influenciam a conversão são o **históri
 | Pipeline em nuvem, de ponta a ponta, na arquitetura medalhão | ✅ Bronze → Silver → Gold no Databricks, orquestrado por Job |
 | Modelagem dimensional | ✅ Esquema estrela com surrogate keys e PK/FK no Unity Catalog |
 | Catálogo de dados | ✅ Documentado no README **e** gravado no Unity Catalog (todas as tabelas e colunas) |
-| Qualidade de dados | ✅ 11 problemas identificados e tratados; 58 checagens automatizadas; constraints Delta |
-| Responder às 7 perguntas | ✅ Todas respondidas, com controles de confusão e recomendações práticas |
+| Qualidade de dados | ✅ Verificação dos 21 atributos nas 5 dimensões; 11 problemas identificados e tratados; 58 checagens automatizadas; constraints Delta |
+| Responder às 7 perguntas | ✅ 5 respondidas e ⚠️ 2 respondidas parcialmente (detalhe abaixo) |
+
+### Atingimento por pergunta
+
+As perguntas originais foram mantidas intactas. Algumas só puderam ser respondidas em parte:
+
+| # | Situação | Discussão |
+|---|---|---|
+| P1 | ✅ Respondida | Taxa geral e diferença por canal medidas e confirmadas dentro de cada ano |
+| P2 | ✅ Respondida, com ressalva | Os perfis mais propensos foram identificados, mas a visão bruta superestimava o efeito, porque idosos e estudantes foram contatados quase só em 2009-2010. O controle por ano corrigiu isso. Sem ID de cliente, o "perfil" é uma combinação de atributos, não um cliente |
+| P3 | ✅ Respondida | Relação clara e monotônica. Parte do efeito é seleção (clientes pouco interessados exigem mais ligações), o que não muda a recomendação operacional |
+| P4 | ✅ Respondida | Resposta forte, e só foi possível depois de corrigir a interpretação de `pdays` |
+| P5 | ⚠️ Parcial | **Não foi possível apontar um "melhor mês" confiável:** mês, ano e volume de contatos estão confundidos, e cada mês aparece em poucos anos, com volumes muito diferentes. Para os dias da semana, as diferenças são pequenas. Uma resposta robusta exigiria mais anos de campanhas com volume semelhante por mês |
+| P6 | ⚠️ Parcial | A **associação** entre indicadores e conversão foi demonstrada, mas a **influência** (causalidade) não pôde ser comprovada. Os 5 indicadores são colineares e variam junto com mudanças na operação do banco (volume, canal, recontato). Com dados observacionais de um único ciclo econômico não dá para separar os efeitos |
+| P7 | ✅ Respondida (descritiva) | Ranking e regras de priorização foram gerados, mas o poder discriminativo do perfil é moderado (AUC 0,68) e o resultado precisa ser validado com teste A/B antes de virar política |
 
 ### Dificuldades encontradas
 
