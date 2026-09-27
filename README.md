@@ -411,8 +411,6 @@ O cálculo está no notebook [`02_transformacao_silver.py`](notebooks/02_transfo
 
 **Leitura:** a base não tem nulos explícitos nem valores fora do domínio. Os problemas reais são **semânticos**: a ausência de informação codificada como `unknown` ou `999`, a inconsistência entre `pdays` e `previous`, as duplicatas e a falta de ano. Os outliers encontrados são valores legítimos do negócio, por isso nenhum foi removido; as análises usam faixas para que eles não distorçam os resultados.
 
-![Perfil de qualidade por atributo no Databricks](docs/images/screenshots/12_perfil_qualidade.png)
-
 ### Problemas detectados e tratamentos
 
 | # | Problema | Evidência | Tratamento |
@@ -444,15 +442,13 @@ O pipeline usa um relatório de qualidade próprio ([`DQReport`](notebooks/00_ut
 
 Além das checagens, a silver tem **7 constraints `CHECK` do Delta Lake** (ex.: `campaign >= 1`, `month_num BETWEEN 1 AND 12`), que rejeitam qualquer escrita futura inválida. Todas as checagens passaram na última execução.
 
-![Relatório de qualidade da silver](docs/images/screenshots/05_silver_dq.png)
-
 ---
 
 ## 6. Análise de Dados (Etapa 4.5)
 
 **Script:** [`notebooks/04_analise.py`](notebooks/04_analise.py). Todas as consultas partem do **esquema estrela** (fato + 3 dimensões). **Taxa geral de conversão: 11,27%** (4.639 adesões em 41.176 contatos).
 
-Cada pergunta traz o gráfico gerado pelo pipeline e o **print da consulta executada no Databricks**, como evidência do resultado.
+Os gráficos abaixo foram gerados pelo notebook `04_analise` durante a execução do Job no Databricks (ver [Pipeline de Dados](#4-pipeline-de-dados-etapa-44)) e salvos no volume `gold.relatorios`.
 
 ### P1 — Taxa geral e canal de contato
 
@@ -461,10 +457,6 @@ Cada pergunta traz o gráfico gerado pelo pipeline e o **print da consulta execu
 - O **celular converte 2,8× mais** que o telefone fixo: **14,7% × 5,2%**.
 - A vantagem se mantém **dentro de cada ano** (2008: 5,7% × 3,9%; 2009: 19,9% × 14,7%; 2010: 57,7% × 28,4%), então não é efeito do período.
 - **Ação:** celular como canal padrão; fixo só como alternativa.
-
-**Evidência no Databricks (P1):**
-
-![Consulta da P1 executada no Databricks](docs/images/screenshots/analise_p1.png)
 
 ### P2 — Perfil demográfico
 
@@ -475,10 +467,6 @@ Cada pergunta traz o gráfico gerado pelo pipeline e o **print da consulta execu
 - **Escolaridade e estado civil:** efeito moderado (curso superior 13,7%; solteiros 14,0%).
 - ⚠️ **Controle por período:** nenhum cliente 65+ foi contatado em 2008, o pior ano. Dentro de cada ano a vantagem persiste (em 2009: 65+ 40,7%, aposentados 36,5% e estudantes 32,1%, contra média de 19,5%), mas o *lift* real fica em ~1,5–2×, não os 3–4× da visão bruta.
 
-**Evidência no Databricks (P2):**
-
-![Consulta da P2 executada no Databricks](docs/images/screenshots/analise_p2.png)
-
 ### P3 — Número de contatos na campanha
 
 ![P3](docs/images/graficos/p3_numero_contatos.png)
@@ -487,10 +475,6 @@ Cada pergunta traz o gráfico gerado pelo pipeline e o **print da consulta execu
 - **88% das adesões ocorrem até o 3º contato.** Clientes com 6+ contatos consumiram **30,6% das ligações** para gerar só **4,0% das adesões**.
 - **Ação:** teto de **3 tentativas** por cliente. Isso libera ~26% das ligações, abrindo mão de no máximo 12% das adesões, e as ligações liberadas podem ir para clientes novos de perfil prioritário.
 
-**Evidência no Databricks (P3):**
-
-![Consulta da P3 executada no Databricks](docs/images/screenshots/analise_p3.png)
-
 ### P4 — Contato em campanhas anteriores
 
 ![P4](docs/images/graficos/p4_historico_contato.png)
@@ -498,22 +482,15 @@ Cada pergunta traz o gráfico gerado pelo pipeline e o **print da consulta execu
 - Já contatados convertem **26,7%**, contra **8,8%** dos novos (3×). Ex-aderentes convertem **65,1%** (*lift* 5,8).
 - O tratamento correto de `pdays` (problema de qualidade nº 2) foi decisivo aqui: com a flag baseada em `pdays`, 4.110 clientes já contatados seriam contados como "novos".
 
-**Evidência no Databricks (P4):**
-
-![Consulta da P4 executada no Databricks](docs/images/screenshots/analise_p4.png)
-
 ### P5 — Mês e dia da semana
 
 ![P5 mês](docs/images/graficos/p5_mes.png)
 ![P5 ano x mês](docs/images/graficos/p5_ano_mes.png)
+![P5 dia da semana](docs/images/graficos/p5_dia_semana.png)
 
 - Março, setembro, outubro e dezembro têm taxas de 44–51%, mas são os meses de **menor volume**. Maio (33% dos contatos) tem 6,4%.
 - O mapa ano × mês mostra que o **"efeito mês" é efeito de período**: em 2008 os meses com volume relevante ficaram entre 3,1% e 6,1% (as exceções, outubro e dezembro, tiveram só 67 e 10 contatos); de junho de 2009 em diante, todos os meses passaram de 34%. O padrão consistente é que **ondas massivas convertem pior**.
 - **Dia da semana:** ter–qui (11,7–12,1%) ligeiramente acima; segunda é o pior dia (10,0%).
-
-**Evidência no Databricks (P5):**
-
-![Consulta da P5 executada no Databricks](docs/images/screenshots/analise_p5.png)
 
 ### P6 — Indicadores econômicos
 
@@ -523,10 +500,6 @@ Cada pergunta traz o gráfico gerado pelo pipeline e o **print da consulta execu
 - **Associação forte:** Euribor < 1% → 45,7% de conversão; ≥ 4% → 4,8%. Correlação com a adesão: `nr_employed` −0,35, `euribor3m` −0,31, `emp_var_rate` −0,30; `cons_conf_idx` ≈ 0.
 - Os indicadores são **altamente colineares** (Euribor × nr_employed = 0,95) e medem o mesmo ciclo: a crise de 2008 e a queda dos juros.
 - **Cautela causal:** no mesmo período o banco mudou a operação (volume de 27,7 mil → 2,1 mil contatos/ano, mais celular, mais recontato). O resultado é **associação, não causalidade**. Uso prático: **calibrar volume e metas** conforme o ciclo de juros.
-
-**Evidência no Databricks (P6):**
-
-![Consulta da P6 executada no Databricks](docs/images/screenshots/analise_p6.png)
 
 ### P7 — Perfil ideal
 
@@ -542,10 +515,6 @@ Cada pergunta traz o gráfico gerado pelo pipeline e o **print da consulta execu
 | 4 | Contato só por telefone fixo | 3,5–5,3% |
 
 **Regras operacionais:** celular, até 3 tentativas, terça a quinta, sem ondas massivas. Antes de escalar, validar com **teste A/B**.
-
-**Evidência no Databricks (P7):**
-
-![Consulta da P7 executada no Databricks](docs/images/screenshots/analise_p7.png)
 
 ### Conclusão
 
