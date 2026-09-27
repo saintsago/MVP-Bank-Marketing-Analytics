@@ -1,0 +1,18 @@
+# Dados brutos (não versionados — baixar da UCI, ver README)
+bank/
+bank-additional/
+__MACOSX/
+*.csv
+*.zip
+
+# Databricks / credenciais
+.databricks/
+.databrickscfg
+*.env
+
+# Python / SO / IDE
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+.vscode/
