@@ -213,7 +213,7 @@ PRIMARY_KEYS = {
 
 def existing_constraints() -> set:
     return {r.constraint_name for r in spark.sql(
-        f"SELECT constraint_name FROM {CATALOG}.information_schema.table_constraints WHERE table_schema = '{SCHEMA_GOLD}'"
+        f"SELECT constraint_name FROM {CATALOG_SQL}.information_schema.table_constraints WHERE table_schema = '{SCHEMA_GOLD}'"
     ).collect()}
 
 
@@ -242,7 +242,7 @@ for fk_name, (fk_col, dim_table) in FOREIGN_KEYS.items():
 
 display(spark.sql(f"""
     SELECT table_name, constraint_name, constraint_type
-    FROM {CATALOG}.information_schema.table_constraints
+    FROM {CATALOG_SQL}.information_schema.table_constraints
     WHERE table_schema = '{SCHEMA_GOLD}'
     ORDER BY table_name, constraint_type DESC
 """))

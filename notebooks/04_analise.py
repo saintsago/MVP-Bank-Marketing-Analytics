@@ -27,7 +27,7 @@ from matplotlib.colors import LinearSegmentedColormap
 
 # Gráficos também são salvos em um volume, para uso no README
 REPORTS_VOLUME = "relatorios"
-spark.sql(f"CREATE VOLUME IF NOT EXISTS {CATALOG}.{SCHEMA_GOLD}.{REPORTS_VOLUME} COMMENT 'Artefatos gerados pela análise (gráficos PNG)'")
+spark.sql(f"CREATE VOLUME IF NOT EXISTS {CATALOG_SQL}.{SCHEMA_GOLD}.{REPORTS_VOLUME} COMMENT 'Artefatos gerados pela análise (gráficos PNG)'")
 CHARTS_PATH = f"/Volumes/{CATALOG}/{SCHEMA_GOLD}/{REPORTS_VOLUME}/graficos"
 os.makedirs(CHARTS_PATH, exist_ok=True)
 

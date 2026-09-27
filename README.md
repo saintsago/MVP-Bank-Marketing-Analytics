@@ -43,13 +43,11 @@ flowchart LR
 |---|---|
 | Plataforma | Databricks Free Edition (compute **serverless**) |
 | Armazenamento | Delta Lake (tabelas gerenciadas) + Volume Unity Catalog (landing zone) |
-| Governança / catálogo | Unity Catalog: catálogo `mvp_saas_analytics_pipeline`, schemas `bronze`, `silver`, `gold` |
+| Governança / catálogo | Unity Catalog: catálogo `mvp-bank-marketing-analytics`, schemas `bronze`, `silver`, `gold` |
 | Processamento | PySpark + Spark SQL |
 | Orquestração | Databricks Job com 4 tasks encadeadas ([`jobs/pipeline_job.json`](jobs/pipeline_job.json)) |
 | Análise / visualização | Spark SQL, pandas, matplotlib, scikit-learn (árvore de decisão) |
 | Desenvolvimento | VS Code + extensão Databricks + Databricks CLI |
-
-> O nome do catálogo (`mvp_saas_analytics_pipeline`) é legado de uma ideia anterior de projeto e foi mantido.
 
 ---
 
@@ -132,10 +130,10 @@ Os dados **não** estão versionados neste repositório (ver `.gitignore`). O no
 
 ### Coleta
 
-1. O CSV é colocado na **landing zone**, o Volume Unity Catalog `mvp_saas_analytics_pipeline.bronze.landing`:
+1. O CSV é colocado na **landing zone**, o Volume Unity Catalog `mvp-bank-marketing-analytics.bronze.landing`:
    ```bash
    databricks fs cp bank-additional/bank-additional-full.csv \
-       dbfs:/Volumes/mvp_saas_analytics_pipeline/bronze/landing/bank-additional-full.csv
+       dbfs:/Volumes/mvp-bank-marketing-analytics/bronze/landing/bank-additional-full.csv
    ```
 2. **Plano B automático:** se o arquivo não estiver no volume, o notebook baixa o zip oficial da UCI (`bank+marketing.zip`), abre o zip interno `bank-additional.zip` e extrai só o CSV necessário.
 
@@ -351,10 +349,10 @@ O Job `mvp_bank_marketing_pipeline` ([`jobs/pipeline_job.json`](jobs/pipeline_jo
 
 | Task | Duração (última execução completa) |
 |---|---:|
-| 01_ingestao_bronze | 43 s |
-| 02_transformacao_silver | 40 s |
-| 03_modelagem_gold | 72 s |
-| 04_analise | 112 s |
+| 01_ingestao_bronze | 85 s |
+| 02_transformacao_silver | 43 s |
+| 03_modelagem_gold | 73 s |
+| 04_analise | 113 s |
 
 ![DAG do Job no Databricks](docs/images/screenshots/08_job_dag.png)
 ![Execução do Job com as 4 tasks concluídas](docs/images/screenshots/09_job_run.png)
@@ -601,7 +599,8 @@ As perguntas originais foram mantidas intactas. Algumas só puderam ser respondi
 
 ## Como reproduzir
 
-1. Crie no Unity Catalog o catálogo `mvp_saas_analytics_pipeline` com os schemas `bronze`, `silver` e `gold` (ou ajuste `CATALOG` em [`00_utils.py`](notebooks/00_utils.py)).
+1. Crie no Unity Catalog o catálogo `mvp-bank-marketing-analytics` com os schemas `bronze`, `silver` e `gold` (ou ajuste `CATALOG` em [`00_utils.py`](notebooks/00_utils.py)).
+   Por causa do hífen, o nome do catálogo precisa de crases em SQL (ex.: ``SELECT * FROM `mvp-bank-marketing-analytics`.gold.fato_contato``).
 2. Importe a pasta `notebooks/` para o workspace:
    ```bash
    databricks workspace import-dir notebooks /Workspace/Users/<seu-usuario>/mvp_bank_marketing/notebooks

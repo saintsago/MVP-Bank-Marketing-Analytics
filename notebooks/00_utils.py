@@ -15,7 +15,8 @@
 # ---------------------------------------------------------------------------
 # Configuração
 # ---------------------------------------------------------------------------
-CATALOG = "mvp_saas_analytics_pipeline"
+CATALOG = "mvp-bank-marketing-analytics"  # o Unity Catalog guarda nomes em minúsculas
+CATALOG_SQL = f"`{CATALOG}`"  # o hífen exige crases em comandos SQL; caminhos de volume usam o nome puro
 SCHEMA_BRONZE, SCHEMA_SILVER, SCHEMA_GOLD = "bronze", "silver", "gold"
 
 LANDING_VOLUME = "landing"
@@ -24,12 +25,12 @@ SOURCE_FILE_NAME = "bank-additional-full.csv"
 SOURCE_PATH = f"{LANDING_PATH}/{SOURCE_FILE_NAME}"
 UCI_ZIP_URL = "https://archive.ics.uci.edu/static/public/222/bank+marketing.zip"
 
-TBL_BRONZE = f"{CATALOG}.{SCHEMA_BRONZE}.raw_bank_marketing"
-TBL_SILVER = f"{CATALOG}.{SCHEMA_SILVER}.slv_bank_marketing"
-TBL_DIM_CLIENTE = f"{CATALOG}.{SCHEMA_GOLD}.dim_cliente"
-TBL_DIM_CAMPANHA = f"{CATALOG}.{SCHEMA_GOLD}.dim_campanha"
-TBL_DIM_CONTEXTO = f"{CATALOG}.{SCHEMA_GOLD}.dim_contexto_economico"
-TBL_FATO = f"{CATALOG}.{SCHEMA_GOLD}.fato_contato"
+TBL_BRONZE = f"{CATALOG_SQL}.{SCHEMA_BRONZE}.raw_bank_marketing"
+TBL_SILVER = f"{CATALOG_SQL}.{SCHEMA_SILVER}.slv_bank_marketing"
+TBL_DIM_CLIENTE = f"{CATALOG_SQL}.{SCHEMA_GOLD}.dim_cliente"
+TBL_DIM_CAMPANHA = f"{CATALOG_SQL}.{SCHEMA_GOLD}.dim_campanha"
+TBL_DIM_CONTEXTO = f"{CATALOG_SQL}.{SCHEMA_GOLD}.dim_contexto_economico"
+TBL_FATO = f"{CATALOG_SQL}.{SCHEMA_GOLD}.fato_contato"
 
 # COMMAND ----------
 

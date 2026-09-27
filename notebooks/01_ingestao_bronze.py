@@ -10,8 +10,8 @@
 # MAGIC | Fonte | UCI Machine Learning Repository — [Bank Marketing](https://archive.ics.uci.edu/dataset/222/bank+marketing) |
 # MAGIC | Arquivo | `bank-additional-full.csv` (41.188 linhas × 21 colunas, separador `;`) |
 # MAGIC | Licença | CC BY 4.0 — Moro, S., Rita, P., & Cortez, P. (2014). *Bank Marketing* [Dataset]. https://doi.org/10.24432/C5K306 |
-# MAGIC | Landing zone | Volume Unity Catalog `mvp_saas_analytics_pipeline.bronze.landing` |
-# MAGIC | Destino | `mvp_saas_analytics_pipeline.bronze.raw_bank_marketing` (Delta) |
+# MAGIC | Landing zone | Volume Unity Catalog `mvp-bank-marketing-analytics.bronze.landing` |
+# MAGIC | Destino | `mvp-bank-marketing-analytics.bronze.raw_bank_marketing` (Delta) |
 # MAGIC
 # MAGIC **Decisões de design**
 # MAGIC - Todas as colunas são lidas como `string` (`inferSchema = false`): o bronze preserva o dado exatamente como chegou; tipagem e validação ficam na silver.
@@ -50,7 +50,7 @@ EXPECTED_COLUMNS = [
 # COMMAND ----------
 
 spark.sql(f"""
-    CREATE VOLUME IF NOT EXISTS {CATALOG}.{SCHEMA_BRONZE}.{LANDING_VOLUME}
+    CREATE VOLUME IF NOT EXISTS {CATALOG_SQL}.{SCHEMA_BRONZE}.{LANDING_VOLUME}
     COMMENT 'Landing zone: arquivos brutos recebidos da fonte (UCI Bank Marketing) antes da ingestão no bronze'
 """)
 

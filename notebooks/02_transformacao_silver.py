@@ -6,8 +6,8 @@
 # MAGIC
 # MAGIC | Item | Valor |
 # MAGIC |---|---|
-# MAGIC | Origem | `mvp_saas_analytics_pipeline.bronze.raw_bank_marketing` |
-# MAGIC | Destino | `mvp_saas_analytics_pipeline.silver.slv_bank_marketing` (Delta) |
+# MAGIC | Origem | `mvp-bank-marketing-analytics.bronze.raw_bank_marketing` |
+# MAGIC | Destino | `mvp-bank-marketing-analytics.silver.slv_bank_marketing` (Delta) |
 # MAGIC | Grão | 1 linha = 1 cliente contatado na campanha (atributos do último contato) |
 # MAGIC
 # MAGIC **Transformações** (a seção 6 documenta cada decisão)
