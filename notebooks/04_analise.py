@@ -24,6 +24,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.colors import LinearSegmentedColormap
+from pyspark.sql import functions as F
 
 # Gráficos também são salvos em um volume, para uso no README
 REPORTS_VOLUME = "relatorios"
@@ -56,9 +57,13 @@ def num(v: int) -> str:
 
 
 def run(sql: str) -> pd.DataFrame:
-    """Executa a consulta, exibe o resultado no notebook e devolve um pandas DataFrame para o gráfico."""
+    """Executa a consulta, exibe o resultado e devolve um pandas DataFrame para o gráfico.
+
+    Os decimais são arredondados só na exibição: o DataFrame devolvido guarda a precisão completa, para que os
+    rótulos dos gráficos (1 casa decimal) não sofram arredondamento duplo (ex.: 10,749 -> 10,75 -> "10,8").
+    """
     df = spark.sql(sql)
-    display(df)
+    display(df.select([F.round(c, 2).alias(c) if t == "double" else F.col(c) for c, t in df.dtypes]))
     return df.toPandas()
 
 
@@ -153,11 +158,11 @@ print(f"Taxa geral de conversão: {pct(OVERALL, 2)}")
 
 p1 = run("""
 SELECT 'Total' AS canal, COUNT(*) AS contatos, 100.0 AS participacao_pct, SUM(subscribed) AS adesoes,
-       ROUND(100 * AVG(subscribed), 2) AS taxa_conversao_pct
+       100 * AVG(subscribed) AS taxa_conversao_pct
 FROM vw_contatos
 UNION ALL
-SELECT contact, COUNT(*), ROUND(100 * COUNT(*) / (SELECT COUNT(*) FROM vw_contatos), 1), SUM(subscribed),
-       ROUND(100 * AVG(subscribed), 2)
+SELECT contact, COUNT(*), 100 * COUNT(*) / (SELECT COUNT(*) FROM vw_contatos), SUM(subscribed),
+       100 * AVG(subscribed)
 FROM vw_contatos
 GROUP BY contact
 ORDER BY contatos DESC
@@ -167,7 +172,7 @@ ORDER BY contatos DESC
 
 # Controle de confusão: a vantagem do celular se mantém dentro de cada ano?
 p1_ano = run("""
-SELECT contact_year AS ano, contact AS canal, COUNT(*) AS contatos, ROUND(100 * AVG(subscribed), 2) AS taxa_conversao_pct
+SELECT contact_year AS ano, contact AS canal, COUNT(*) AS contatos, 100 * AVG(subscribed) AS taxa_conversao_pct
 FROM vw_contatos
 GROUP BY contact_year, contact
 ORDER BY ano, canal
@@ -219,8 +224,8 @@ save(fig, "p1_canal")
 def profile_query(column: str, order: str) -> str:
     return f"""
     SELECT {column} AS categoria, COUNT(*) AS contatos, SUM(subscribed) AS adesoes,
-           ROUND(100 * AVG(subscribed), 2) AS taxa_conversao_pct,
-           ROUND(100 * AVG(subscribed) / {OVERALL}, 2) AS lift
+           100 * AVG(subscribed) AS taxa_conversao_pct,
+           100 * AVG(subscribed) / {OVERALL} AS lift
     FROM vw_contatos
     GROUP BY {column}
     HAVING COUNT(*) >= 100
@@ -298,8 +303,8 @@ SELECT CASE WHEN campaign <= 5 THEN CAST(campaign AS STRING) WHEN campaign <= 10
        COUNT(*) AS clientes,
        SUM(campaign) AS ligacoes,
        SUM(subscribed) AS adesoes,
-       ROUND(100 * AVG(subscribed), 2) AS taxa_conversao_pct,
-       ROUND(100 * SUM(subscribed) / SUM(campaign), 2) AS adesoes_por_100_ligacoes
+       100 * AVG(subscribed) AS taxa_conversao_pct,
+       100 * SUM(subscribed) / SUM(campaign) AS adesoes_por_100_ligacoes
 FROM vw_contatos
 GROUP BY 1
 ORDER BY ordem
@@ -356,8 +361,8 @@ SELECT CASE WHEN NOT is_previously_contacted THEN '1. Nunca contatado'
             WHEN poutcome = 'failure'      THEN '2. Contatado antes, anterior sem sucesso'
             ELSE                                '3. Contatado antes, anterior com sucesso' END AS grupo,
        COUNT(*) AS contatos, SUM(subscribed) AS adesoes,
-       ROUND(100 * AVG(subscribed), 2) AS taxa_conversao_pct,
-       ROUND(AVG(subscribed) / (SELECT AVG(subscribed) FROM vw_contatos), 2) AS lift
+       100 * AVG(subscribed) AS taxa_conversao_pct,
+       AVG(subscribed) / (SELECT AVG(subscribed) FROM vw_contatos) AS lift
 FROM vw_contatos
 GROUP BY 1 ORDER BY 1
 """)
@@ -405,16 +410,16 @@ save(fig, "p4_historico_contato")
 
 p5_mes = run("""
 SELECT month_num, month AS mes, COUNT(*) AS contatos, SUM(subscribed) AS adesoes,
-       ROUND(100 * AVG(subscribed), 2) AS taxa_conversao_pct
+       100 * AVG(subscribed) AS taxa_conversao_pct
 FROM vw_contatos GROUP BY month_num, month ORDER BY month_num
 """)
 p5_dia = run("""
 SELECT day_of_week_num, day_of_week AS dia, COUNT(*) AS contatos, SUM(subscribed) AS adesoes,
-       ROUND(100 * AVG(subscribed), 2) AS taxa_conversao_pct
+       100 * AVG(subscribed) AS taxa_conversao_pct
 FROM vw_contatos GROUP BY day_of_week_num, day_of_week ORDER BY day_of_week_num
 """)
 p5_ano_mes = run("""
-SELECT contact_year AS ano, month_num, month AS mes, COUNT(*) AS contatos, ROUND(100 * AVG(subscribed), 2) AS taxa_conversao_pct
+SELECT contact_year AS ano, month_num, month AS mes, COUNT(*) AS contatos, 100 * AVG(subscribed) AS taxa_conversao_pct
 FROM vw_contatos GROUP BY contact_year, month_num, month ORDER BY ano, month_num
 """)
 
@@ -466,11 +471,11 @@ save(fig, "p5_ano_mes")
 # MAGIC ### Discussão — P5
 # MAGIC - **Visão bruta:** março (50,5%), dezembro (48,9%), setembro (44,9%) e outubro (43,9%) têm as maiores taxas, e maio a pior (6,4%). Mas os meses de alta taxa são os de
 # MAGIC   **menor volume** (182 a 717 contatos), e maio concentra 33% de todos os contatos.
-# MAGIC - **O "efeito mês" é, na verdade, efeito de período:** no mapa ano × mês, quase todos os meses de 2008 ficam entre 3% e 6%, e de meados de 2009 em diante praticamente todos
-# MAGIC   passam de 30%. Os meses "bons" são os que só tiveram campanhas em 2009-2010.
-# MAGIC - O padrão consistente é outro: os **meses de campanha massiva** (maio/2008 com 7.762 contatos e 3,1%; maio/2009 com 5.793 e 9,1%) têm as piores taxas do seu ano.
+# MAGIC - **O "efeito mês" é, na verdade, efeito de período:** no mapa ano × mês, os meses de 2008 com volume relevante ficam entre 3,1% e 6,1% (as exceções, outubro e dezembro, tiveram só 67 e 10 contatos), e de junho de 2009 em diante todos
+# MAGIC   passam de 30%. Os meses "bons" (março, setembro, outubro e dezembro) concentram de 91% a 100% dos seus contatos em 2009-2010.
+# MAGIC - O padrão consistente é outro: os **meses de campanha massiva** (maio/2008 com 7.762 contatos e 3,1%; maio/2009 com 5.793 e 9,0%) têm as piores taxas do seu ano.
 # MAGIC   Volume alto e pouco seletivo derruba a conversão.
-# MAGIC - **Dia da semana:** diferenças pequenas. Quinta (12,1%), terça (11,8%) e quarta (11,7%) ficam acima da média; segunda é o pior dia (9,9%).
+# MAGIC - **Dia da semana:** diferenças pequenas. Quinta (12,1%), terça (11,8%) e quarta (11,7%) ficam acima da média; segunda é o pior dia (10,0%).
 # MAGIC - **Implicação:** os dados não mostram um "melhor mês" robusto. A recomendação é evitar ondas massivas e concentrar as ligações de terça a quinta, evitando a segunda-feira.
 # MAGIC   É um ganho marginal (cerca de 2 p.p.) perto de canal e histórico.
 
@@ -483,21 +488,21 @@ save(fig, "p5_ano_mes")
 
 p6_serie = run("""
 SELECT contact_year AS ano, month_num, month AS mes, COUNT(*) AS contatos,
-       ROUND(100 * AVG(subscribed), 2) AS taxa_conversao_pct,
-       ROUND(AVG(euribor3m), 3) AS euribor3m_media,
-       ROUND(AVG(nr_employed), 1) AS nr_employed_medio,
-       ROUND(AVG(cons_conf_idx), 1) AS cons_conf_idx_medio
+       100 * AVG(subscribed) AS taxa_conversao_pct,
+       AVG(euribor3m) AS euribor3m_media,
+       AVG(nr_employed) AS nr_employed_medio,
+       AVG(cons_conf_idx) AS cons_conf_idx_medio
 FROM vw_contatos GROUP BY contact_year, month_num, month ORDER BY ano, month_num
 """)
 
 p6_euribor = run("""
 SELECT CASE WHEN euribor3m < 1 THEN '1. abaixo de 1%' WHEN euribor3m < 4 THEN '2. de 1% a 4%' ELSE '3. 4% ou mais' END AS faixa_euribor3m,
-       COUNT(*) AS contatos, ROUND(100 * AVG(subscribed), 2) AS taxa_conversao_pct
+       COUNT(*) AS contatos, 100 * AVG(subscribed) AS taxa_conversao_pct
 FROM vw_contatos GROUP BY 1 ORDER BY 1
 """)
 
 p6_emprego = run("""
-SELECT nr_employed, COUNT(*) AS contatos, ROUND(100 * AVG(subscribed), 2) AS taxa_conversao_pct
+SELECT nr_employed, COUNT(*) AS contatos, 100 * AVG(subscribed) AS taxa_conversao_pct
 FROM vw_contatos GROUP BY nr_employed ORDER BY nr_employed
 """)
 
@@ -593,21 +598,21 @@ def top_segments(df: pd.DataFrame, features: list, k: int = 3, min_n: int = 200,
         for _, r in g[g["count"] >= min_n].iterrows():
             rows.append({
                 "segmento": " · ".join(f"{c}={r[c]}" for c in combo),
-                "contatos": int(r["count"]), "adesoes": int(r["sum"]), "taxa_conversao_pct": round(100 * r["mean"], 2),
+                "contatos": int(r["count"]), "adesoes": int(r["sum"]), "taxa_conversao_pct": 100 * r["mean"],
             })
     out = pd.DataFrame(rows).sort_values(["taxa_conversao_pct", "contatos"], ascending=[False, False]).head(top)
-    out["lift"] = (out.taxa_conversao_pct / OVERALL).round(2)
+    out["lift"] = out.taxa_conversao_pct / OVERALL
     return out.reset_index(drop=True)
 
 
 seg_todos = top_segments(pdf, PERFIL)
-display(seg_todos)
+display(seg_todos.round(2))
 
 novos = pdf[pdf.poutcome == "nonexistent"]
 taxa_novos = 100 * novos.subscribed.mean()
 seg_novos = top_segments(novos, [c for c in PERFIL if c != "poutcome"], min_n=200)
 print(f"Clientes nunca contatados: {num(len(novos))} contatos, taxa base {pct(taxa_novos, 2)}")
-display(seg_novos)
+display(seg_novos.round(2))
 
 # COMMAND ----------
 
@@ -659,10 +664,10 @@ regras = (
     .groupby("folha")["subscribed"].agg(contatos="count", adesoes="sum", taxa_conversao_pct="mean").reset_index()
 )
 regras["regra"] = regras.folha.map(leaf_rules(tree, list(X.columns)))
-regras["taxa_conversao_pct"] = (100 * regras.taxa_conversao_pct).round(2)
-regras["lift"] = (regras.taxa_conversao_pct / OVERALL).round(2)
+regras["taxa_conversao_pct"] = 100 * regras.taxa_conversao_pct
+regras["lift"] = regras.taxa_conversao_pct / OVERALL
 regras = regras.sort_values("taxa_conversao_pct", ascending=False)[["regra", "contatos", "adesoes", "taxa_conversao_pct", "lift"]].reset_index(drop=True)
-display(regras)
+display(regras.round(2))
 
 # COMMAND ----------
 
@@ -685,7 +690,7 @@ save(fig, "p7_perfil_ideal")
 # MAGIC | 1 | Aderiu na campanha anterior (`poutcome = success`) | 1.373 | ~65% | 5,8 |
 # MAGIC | 2 | Sem sucesso anterior + celular + 65 anos ou mais | 468 | 41,2% | 3,7 |
 # MAGIC | 3 | Sem sucesso anterior + celular + menos de 65 anos | 24.397 | 11,6% | 1,0 |
-# MAGIC | 4 | Sem sucesso anterior + telefone fixo | 10.707 | 5,3% | 0,5 |
+# MAGIC | 4 | Sem sucesso anterior + telefone fixo + situação de crédito conhecida | 10.707 | 5,3% | 0,5 |
 # MAGIC | 5 | Idem, com situação de crédito desconhecida (`credit_default = unknown`) | 4.231 | 3,5% | 0,3 |
 # MAGIC
 # MAGIC - O histórico (`poutcome = success`) responde por 81% da importância da árvore; celular (10%) e 65+ (8,5%) completam. A **AUC de 0,68** mostra que o perfil sozinho discrimina de

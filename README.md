@@ -349,10 +349,10 @@ O Job `mvp_bank_marketing_pipeline` ([`jobs/pipeline_job.json`](jobs/pipeline_jo
 
 | Task | Duração (última execução completa) |
 |---|---:|
-| 01_ingestao_bronze | 85 s |
-| 02_transformacao_silver | 43 s |
-| 03_modelagem_gold | 73 s |
-| 04_analise | 113 s |
+| 01_ingestao_bronze | 77 s |
+| 02_transformacao_silver | 41 s |
+| 03_modelagem_gold | 69 s |
+| 04_analise | 116 s |
 
 ![DAG do Job no Databricks](docs/images/screenshots/08_job_dag.png)
 ![Execução do Job com as 4 tasks concluídas](docs/images/screenshots/09_job_run.png)
@@ -508,8 +508,8 @@ Cada pergunta traz o gráfico gerado pelo pipeline e o **print da consulta execu
 ![P5 ano x mês](docs/images/graficos/p5_ano_mes.png)
 
 - Março, setembro, outubro e dezembro têm taxas de 44–51%, mas são os meses de **menor volume**. Maio (33% dos contatos) tem 6,4%.
-- O mapa ano × mês mostra que o **"efeito mês" é efeito de período**: 2008 ficou em 3–6% em quase todos os meses; de meados de 2009 em diante, acima de 30%. O padrão consistente é que **ondas massivas convertem pior**.
-- **Dia da semana:** ter–qui (11,7–12,1%) ligeiramente acima; segunda é o pior dia (9,9%).
+- O mapa ano × mês mostra que o **"efeito mês" é efeito de período**: em 2008 os meses com volume relevante ficaram entre 3,1% e 6,1% (as exceções, outubro e dezembro, tiveram só 67 e 10 contatos); de junho de 2009 em diante, todos os meses passaram de 34%. O padrão consistente é que **ondas massivas convertem pior**.
+- **Dia da semana:** ter–qui (11,7–12,1%) ligeiramente acima; segunda é o pior dia (10,0%).
 
 **Evidência no Databricks (P5):**
 
@@ -537,8 +537,8 @@ Cada pergunta traz o gráfico gerado pelo pipeline e o **print da consulta execu
 | Prioridade | Perfil | Conversão |
 |---|---|---:|
 | 1 | Aderiu na campanha anterior | ~65% |
-| 2 | Novo, 65+/aposentado, contato por celular | 41–45% |
-| 3 | Novo, celular, demais idades (priorizar jovens/estudantes e curso superior) | ~12% |
+| 2 | Sem sucesso anterior, 65+ (em especial aposentados), contato por celular | 41–45% |
+| 3 | Sem sucesso anterior, celular, menos de 65 anos (priorizar jovens/estudantes e curso superior) | ~12% |
 | 4 | Contato só por telefone fixo | 3,5–5,3% |
 
 **Regras operacionais:** celular, até 3 tentativas, terça a quinta, sem ondas massivas. Antes de escalar, validar com **teste A/B**.
